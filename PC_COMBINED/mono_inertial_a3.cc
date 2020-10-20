@@ -37,6 +37,10 @@
 #include<System.h>
 #include "ImuTypes.h"
 
+#define NUM_SAMPLES  40
+#define IMUS_PER_IMG  30
+
+
 using namespace std;
 
 void LoadImages(const string &strImagePath, const string &strPathTimes,
@@ -56,9 +60,14 @@ std::condition_variable condv;
 bool found_image;
 
 // global values updated constantly
+
+vector<ORB_SLAM3::IMU::Point> vImuMeas;
+
 double vAccX, vAccY, vAccZ, vRotX, vRotY, vRotZ, vTime;
-int16_t p_image[144][192][3]; 
+vector<vector<vector<int16_t>>> p_image(144, vector<vector<int16_t>>(192, vector<int16_t>(3)));
 uint32_t ni;
+
+
 
 
 
@@ -73,16 +82,24 @@ class Handler
         {
             std::lock_guard<std::mutex> lk(lcm_mutex);
             
-            printf("Received message on channel \"%s\":\n", chan.c_str());
+            printf("Received message on channel \"%s\", size %d \n", chan.c_str(), vImuMeas.size());
 
 
             vAccX  =  msg->gyro[0];
             vAccY  =  msg->gyro[1];
-            vAccZ  =  msg->gyro[3];
+            vAccZ  =  msg->gyro[2];
             vRotX  =  msg->mag[0];
             vRotY  =  msg->mag[1];
             vRotZ  =  msg->mag[2];
             vTime  =  msg->utime;
+
+            vImuMeas.push_back(ORB_SLAM3::IMU::Point(vAccX, vAccY, vAccZ, vRotX, vRotY, vRotZ, vTime));
+
+
+            //keeps only latest IMUS_PER_IMG imu measurements in case there is some stalling from image lcm
+            if(vImuMeas.size()>IMUS_PER_IMG){
+                vImuMeas.erase(vImuMeas.begin());
+            }
 
         }
 
@@ -93,6 +110,17 @@ class Handler
             std::lock_guard<std::mutex> lk(lcm_mutex);
             found_image = true;
             ni = msg->utime;
+            std::cout << "Notifying" <<std::endl;
+
+            for(int x = 0 ; x< 144; ++x){
+                for(int y= 0; y< 192; ++y){
+                    for(int z = 0; z < 3; ++z)
+                    {
+                        p_image[x][y][z] = msg->encode_img[x][y][z];
+
+                    }
+                }
+            }
             condv.notify_all();
 
         }
@@ -135,7 +163,21 @@ void lcm_image_handler(void){
 }
 
 
+void p_image_init(){
 
+    vector<int16_t> one_d( 3, 0);
+    for(int x = 0 ; x< 144; ++x){
+        vector<vector<int16_t> >two_d;
+        for(int y= 0; y< 192; ++y){
+            two_d.push_back(one_d);
+            
+        }
+
+        p_image.push_back(two_d);
+    }
+
+
+}
 
 
 
@@ -144,23 +186,15 @@ double ttrack_tot = 0;
 int main(int argc, char *argv[])
 {
 
+    p_image_init();
+
     if(argc < 7)
     {
         cerr << endl << "Usage: ./mono_inertial_a3\n  path_to_vocabulary\n  path_to_settings\n  path_to_sequence_folder_1\n  path_to_times_file_1\n  (path_to_image_folder_2\n    path_to_times_file_2 ...\n   path_to_image_folder_N path_to_times_file_N)\n  DO_IMU " << endl;
         return 1;
     }
 
-
-
     bool DO_IMU = atoi(argv[argc-1]);
-    if (DO_IMU){
-
-        std::thread lcm_thread(lcm_imu_handler);
-    }
-
-
-    std::thread lcm_thread(lcm_image_handler);
-
 
 
     const int num_seq = (argc-3)/2;
@@ -179,13 +213,6 @@ int main(int argc, char *argv[])
     int seq;
     
 
-    vector< vector<double> > vTimestampsImu;
-
-    vector<int> first_imu(num_seq,0);
-
-
-    vTimestampsImu.resize(num_seq);
-
     
 
     int tot_images = 0;
@@ -201,26 +228,40 @@ int main(int argc, char *argv[])
 
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
-    ORB_SLAM3::System SLAM(
-                        argv[1],
-                        argv[2],
-                        DO_IMU ? ORB_SLAM3::System::IMU_MONOCULAR : ORB_SLAM3::System::MONOCULAR,
-                        true);
+    // ORB_SLAM3::System SLAM(
+    //                     argv[1],
+    //                     argv[2],
+    //                     DO_IMU ? ORB_SLAM3::System::IMU_MONOCULAR : ORB_SLAM3::System::MONOCULAR,
+    //                     true);
 
-    int proccIm=0;
-    for (seq = 0; seq<num_seq; seq++)
+
+    std::thread lcm_imu_thread; 
+    if (DO_IMU){
+
+        lcm_imu_thread = std::thread(lcm_imu_handler);
+    }
+
+
+    std::thread lcm_image_thread(lcm_image_handler);
+
+
+    for (seq = 0; seq<NUM_SAMPLES; seq++)
     {
         // we wait for next image to be handled
         std::unique_lock<std::mutex> lk(lcm_mutex);
         condv.wait(lk, []{return found_image == true;});
         found_image = false;
+        std::cout << "printing imus " <<std::endl;
+
+
+        for (auto imus :vImuMeas){
+            std::cout << imus.a << endl;
+        }
 
 
 
         // Main loop
         cv::Mat im;
-        vector<ORB_SLAM3::IMU::Point> vImuMeas;
-        proccIm = 0;
 
             
             
@@ -233,18 +274,6 @@ int main(int argc, char *argv[])
 
         //double tframe = vTimestampsCam[seq][ni];
         double tframe = ni * 0.1;
-
-
-        std::cout << "-----------c" << std::endl;
-
-        // Load imu measurements from previous frame
-        vImuMeas.clear();
-        std::cout << "-----------c.5" << std::endl;
-
-
-        vImuMeas.push_back(ORB_SLAM3::IMU::Point(vAccX, vAccY, vAccZ, vRotX, vRotY, vRotZ, vTime));
-
-        std::cout << "-----------d" << std::endl;
         
         #ifdef COMPILEDWITHC11
         std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
@@ -254,10 +283,10 @@ int main(int argc, char *argv[])
         
         std::cout << "-----------e" << std::endl;
         
-        if (DO_IMU)
-            SLAM.TrackMonocular(im,tframe,vImuMeas);
-        else
-            SLAM.TrackMonocular(im,tframe);
+        // if (DO_IMU)
+        //     SLAM.TrackMonocular(im,tframe,vImuMeas);
+        // else
+        //     SLAM.TrackMonocular(im,tframe);
         std::cout << "-----------f" << std::endl;
             
 
@@ -279,27 +308,33 @@ int main(int argc, char *argv[])
         {
             cout << "Changing the dataset" << endl;
 
-            SLAM.ChangeDataset();
+            // SLAM.ChangeDataset();
         }
+
+
+        vImuMeas.clear();
     }
 
     // Stop all threads
-    SLAM.Shutdown();
+    // SLAM.Shutdown();
 
     // Save camera trajectory
     if (bFileName)
     {
         const string kf_file =  "kf_" + string(argv[argc-2]) + ".txt";
         const string f_file =  "f_" + string(argv[argc-2]) + ".txt";
-        SLAM.SaveTrajectoryEuRoC(f_file);
-        SLAM.SaveKeyFrameTrajectoryEuRoC(kf_file);
+        // SLAM.SaveTrajectoryEuRoC(f_file);
+        // SLAM.SaveKeyFrameTrajectoryEuRoC(kf_file);
     }
     else
     {
-        SLAM.SaveTrajectoryEuRoC("CameraTrajectory.txt");
-        SLAM.SaveKeyFrameTrajectoryEuRoC("KeyFrameTrajectory.txt");
+        // SLAM.SaveTrajectoryEuRoC("CameraTrajectory.txt");
+        // SLAM.SaveKeyFrameTrajectoryEuRoC("KeyFrameTrajectory.txt");
     }
 
+
+    lcm_imu_thread.join();
+    lcm_image_thread.join();
     return 0;
 }
 
