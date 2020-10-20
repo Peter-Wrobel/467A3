@@ -1,0 +1,46 @@
+For setting up the SLAM visualization:
+
+    I included my mono_inertial_a3 library file, which MIGHT run on your computer.
+    Place it in ORB_SLAM3/Examples/Monocular-Inertial, cd there, and run:
+    
+        ./mono_inertial_a3 ../../Vocabulary/ORBvoc.txt EuRoC.yaml A B C 1
+        
+        (A/B/C are ignored values. The last value is 0 for t3, and 1 for t6.)
+    
+    You should get a window to show up, but it won't actually "work".
+    If the EXECUTABLE didn't run, do this to compile it:
+    
+        Place mono_inertial_a3.cc in ORB_SLAM3/Examples/Monocular-Inertial
+        
+        Open ORB_SLAM3/CMakeLists.txt, and paste the following around line 173:
+        
+            add_executable(mono_inertial_a3
+            Examples/Monocular-Inertial/mono_inertial_a3.cc)
+            target_link_libraries(mono_inertial_a3 ${PROJECT_NAME})
+            
+        without the indentation!
+        
+        cd to ORB_SLAM3 and run ./build.sh
+        (This is where you'd probably get any compilation errors)
+        
+    If compilation went well, you should have the same executable I mentioned above.
+    
+You'll also need some files to actually feed to the SLAM program:
+
+    My program currently is set up to read files from:
+        ORB_SLAM3/Examples/Monocular-Inertial/stream_image
+        ORB_SLAM3/Examples/Monocular-Inertial/stream_imu
+        
+    I've placed the example video/IMU images that I use in the repo.
+    (Btw, stream_imu/_gen.py is useful as a starting point for fake IMU data.)
+    
+If you can get those working, you should be good.
+
+Basically ./mono_inertial_a3 expects a stream of files starting at 0.png/0.imu.
+I just made the .imu formatted as:
+    aX aY aZ vX vY vZ timestamp
+Each time you write a new pair of files, the visualization should update.
+
+(For t3, you shouldn't need to change anything on your end, since I'll just ignore
+the IMU files.)
+
