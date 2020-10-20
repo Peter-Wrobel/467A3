@@ -1,0 +1,5 @@
+struct mbot_image_t
+{
+    int64_t utime;
+    int16_t encode_img[144][192][3];
+}
