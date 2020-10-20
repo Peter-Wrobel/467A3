@@ -261,14 +261,19 @@ int main(int argc, char *argv[])
 
 
         // Main loop
-        cv::Mat im;
+
+        vector<int> sizes = {144,192,3};
+        cv::Mat im(sizes, CV_16U);
+
+        std::cout << "sample output" <<  p_image[1][68][2] << std::endl;
+
+        memcpy(im.data, p_image.data(), p_image.size()*sizeof(int16_t));
 
             
             
         std::cout << "-----------a" << std::endl;
         
         // Read image from file
-        //im = cv::imread(p_image,CV_LOAD_IMAGE_UNCHANGED);
         std::cout << "-----------b" << std::endl;
         
 
@@ -313,23 +318,6 @@ int main(int argc, char *argv[])
 
 
         vImuMeas.clear();
-    }
-
-    // Stop all threads
-    // SLAM.Shutdown();
-
-    // Save camera trajectory
-    if (bFileName)
-    {
-        const string kf_file =  "kf_" + string(argv[argc-2]) + ".txt";
-        const string f_file =  "f_" + string(argv[argc-2]) + ".txt";
-        // SLAM.SaveTrajectoryEuRoC(f_file);
-        // SLAM.SaveKeyFrameTrajectoryEuRoC(kf_file);
-    }
-    else
-    {
-        // SLAM.SaveTrajectoryEuRoC("CameraTrajectory.txt");
-        // SLAM.SaveKeyFrameTrajectoryEuRoC("KeyFrameTrajectory.txt");
     }
 
 
